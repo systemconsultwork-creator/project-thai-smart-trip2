@@ -1,20 +1,26 @@
 import { Place, Category, ProvinceItem, Review, PendingPlace, User } from '../types';
+import { getFirebaseAuth } from './firebase';
 
-function getAuthHeaders(includeContentType = true): Record<string, string> {
+async function getAuthHeaders(includeContentType = true): Promise<Record<string, string>> {
   const headers: Record<string, string> = {};
+
   if (includeContentType) {
     headers['Content-Type'] = 'application/json';
   }
+
   try {
-    const savedUser = localStorage.getItem('tst_user');
-    if (savedUser) {
-      const user = JSON.parse(savedUser);
-      if (user.id) headers['x-user-id'] = user.id;
-      if (user.role) headers['x-user-role'] = user.role;
-      if (user.email) headers['x-user-email'] = user.email;
-      headers['Authorization'] = `Bearer ${user.id || 'token'}`;
+    const currentAuth = getFirebaseAuth();
+    const firebaseUser = currentAuth?.currentUser;
+
+    if (firebaseUser) {
+      const idToken = await firebaseUser.getIdToken();
+      headers['Authorization'] = `Bearer ${idToken}`;
+      headers['x-user-id'] = firebaseUser.uid;
     }
-  } catch (e) {}
+  } catch (e) {
+    console.error('Failed to get Firebase ID token:', e);
+  }
+
   return headers;
 }
 
@@ -58,7 +64,7 @@ export const api = {
   async createPlace(place: Partial<Place>): Promise<Place> {
     const res = await fetch('/api/places', {
       method: 'POST',
-      headers: getAuthHeaders(true),
+      headers: await getAuthHeaders(true),
       body: JSON.stringify(place),
     });
     if (!res.ok) throw new Error('Failed to create place');
@@ -68,7 +74,7 @@ export const api = {
   async updatePlace(id: number, place: Partial<Place>): Promise<Place> {
     const res = await fetch(`/api/places/${id}`, {
       method: 'PUT',
-      headers: getAuthHeaders(true),
+      headers: await getAuthHeaders(true),
       body: JSON.stringify(place),
     });
     if (!res.ok) throw new Error('Failed to update place');
@@ -83,7 +89,7 @@ export const api = {
   }> {
     const res = await fetch(`/api/places/${id}`, {
       method: 'DELETE',
-      headers: getAuthHeaders(false),
+      headers: await getAuthHeaders(false),
     });
     if (!res.ok) {
       let message = 'Failed to delete place';
@@ -141,7 +147,7 @@ export const api = {
   async deleteReview(id: string): Promise<void> {
     const res = await fetch(`/api/reviews/${id}`, {
       method: 'DELETE',
-      headers: getAuthHeaders(false),
+      headers: await getAuthHeaders(false),
     });
     if (!res.ok) throw new Error('Failed to delete review');
   },
@@ -157,7 +163,7 @@ export const api = {
   async submitPlace(data: Partial<PendingPlace>): Promise<PendingPlace> {
     const res = await fetch('/api/submissions', {
       method: 'POST',
-      headers: getAuthHeaders(true),
+      headers: await getAuthHeaders(true),
       body: JSON.stringify(data),
     });
     if (!res.ok) throw new Error('Failed to submit place');
@@ -167,7 +173,7 @@ export const api = {
   async approveSubmission(id: string): Promise<{ success: boolean; place: Place }> {
     const res = await fetch(`/api/submissions/${id}/approve`, {
       method: 'POST',
-      headers: getAuthHeaders(false),
+      headers: await getAuthHeaders(false),
     });
     if (!res.ok) throw new Error('Failed to approve submission');
     return res.json();
@@ -176,7 +182,7 @@ export const api = {
   async rejectSubmission(id: string): Promise<void> {
     const res = await fetch(`/api/submissions/${id}/reject`, {
       method: 'POST',
-      headers: getAuthHeaders(false),
+      headers: await getAuthHeaders(false),
     });
     if (!res.ok) throw new Error('Failed to reject submission');
   },
@@ -190,7 +196,7 @@ export const api = {
     regionalStats: { north: number; central: number; northeast: number; south: number };
   }> {
     const res = await fetch('/api/admin/stats', {
-      headers: getAuthHeaders(false),
+      headers: await getAuthHeaders(false),
     });
     if (!res.ok) throw new Error('Failed to fetch admin stats');
     return res.json();
@@ -224,7 +230,7 @@ export const api = {
   async toggleFavorite(userId: string, placeId: number): Promise<{ favorites: number[] }> {
     const res = await fetch('/api/users/favorite', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: await getAuthHeaders(true),
       body: JSON.stringify({ userId, placeId }),
     });
     if (!res.ok) throw new Error('Failed to update favorite');
