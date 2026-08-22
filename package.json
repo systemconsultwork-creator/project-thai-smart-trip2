@@ -1,14 +1,15 @@
 {
-  "name": "react-example",
+  "name": "thai-smart-trip",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "concurrently \"npm run dev:vite\" \"npm run dev:server\"",
     "dev:vite": "vite",
     "dev:server": "node -r dotenv/config ./node_modules/tsx/dist/cli.mjs server.ts",
     "sync:places": "node -r dotenv/config ./node_modules/tsx/dist/cli.mjs scripts/syncPlacesToFirebase.ts",
-    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
+    "build": "vite build",
+    "build:server": "esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
     "start": "node -r dotenv/config dist/server.cjs",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
@@ -39,6 +40,7 @@
     "esbuild": "^0.25.0",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
-    "typescript": "~5.8.2"
+    "typescript": "~5.8.2",
+    "wrangler": "^4.36.0"
   }
 }
