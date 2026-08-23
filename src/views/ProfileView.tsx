@@ -38,10 +38,27 @@ export const ProfileView: React.FC = () => {
       api.getSubmissions(user.id)
     ])
       .then(([allPlaces, subs]) => {
-        const favs = allPlaces.places.filter(p => favorites.includes(p.id));
-        setFavPlaces(favs);
-        setUserSubmissions(subs);
-      })
+  /**
+   * Normalize Favorite IDs
+   *
+   * Firestore / localStorage อาจมีทั้ง
+   * number และ string
+   * จึงแปลงทุกอย่างเป็น number ก่อนจับคู่
+   */
+  const favoriteIds = new Set(
+    favorites
+      .map(Number)
+      .filter(Number.isFinite)
+  );
+
+  const favs = allPlaces.places.filter(
+    place =>
+      favoriteIds.has(Number(place.id))
+  );
+
+  setFavPlaces(favs);
+  setUserSubmissions(subs);
+})
       .catch(err => console.error('Failed to load profile data', err))
       .finally(() => setLoading(false));
   }, [user, favorites]);

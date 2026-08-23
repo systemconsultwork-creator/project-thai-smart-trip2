@@ -1,4 +1,10 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  ReactNode
+} from 'react';
 import { Language, MultiLangString, User } from '../types';
 import { db, logout as firebaseLogout } from '../services/firebase';
 import { doc, updateDoc, arrayUnion, arrayRemove } from 'firebase/firestore';
@@ -15,37 +21,74 @@ interface AppContextType {
   setLang: (l: Language) => void;
   t: (key: string, variables?: Record<string, string | number>) => string;
   getLocalized: (obj: MultiLangString | undefined | null) => string;
+
   currentView: string;
   setCurrentView: (view: string) => void;
+
   activeCategory: string;
   setActiveCategory: (cat: string) => void;
+
   activeRegion: string;
   setActiveRegion: (reg: string) => void;
+
   searchQuery: string;
   setSearchQuery: (q: string) => void;
+
   selectedPlaceId: number | null;
   setSelectedPlaceId: (id: number | null) => void;
+
   user: User | null;
   setUser: (u: User | null) => void;
+
   isAdmin: boolean;
+
   favorites: number[];
   toggleFavorite: (placeId: number) => Promise<void>;
+
   isAuthModalOpen: boolean;
   setIsAuthModalOpen: (open: boolean) => void;
+
   authModalMode: 'login' | 'register' | 'favorite_prompt';
   setAuthModalMode: (mode: 'login' | 'register' | 'favorite_prompt') => void;
+
   authPromptReason: 'favorite' | 'general' | 'review';
   setAuthPromptReason: (reason: 'favorite' | 'general' | 'review') => void;
+
   toasts: Toast[];
-  showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
+  showToast: (
+    message: string,
+    type?: 'success' | 'error' | 'info'
+  ) => void;
   removeToast: (id: string) => void;
+
   logout: () => void;
   quickSearch: (term: string) => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
-export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+/**
+ * Normalize Favorite IDs.
+ *
+ * Firebase / localStorage / API อาจส่ง ID มาเป็น
+ * number หรือ string
+ * เราจะแปลงทุกอย่างให้เป็น number ก่อนใช้งาน
+ */
+const normalizeFavoriteIds = (ids: unknown): number[] => {
+  if (!Array.isArray(ids)) return [];
+
+  return Array.from(
+    new Set(
+      ids
+        .map(Number)
+        .filter(id => Number.isFinite(id))
+    )
+  );
+};
+
+export const AppProvider: React.FC<{ children: ReactNode }> = ({
+  children
+}) => {
   const [lang, setLang] = useState<Language>(() => {
     const saved = localStorage.getItem('tst_lang');
     return (saved as Language) || 'th';
@@ -60,45 +103,88 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const [user, setUser] = useState<User | null>(() => {
     const savedUser = localStorage.getItem('tst_user');
+
     if (savedUser) {
       try {
-        return JSON.parse(savedUser);
+        const parsedUser = JSON.parse(savedUser);
+
+        return {
+          ...parsedUser,
+          favorites: normalizeFavoriteIds(parsedUser.favorites)
+        };
       } catch {
         return null;
       }
     }
+
     return null;
   });
 
-  // Admin is never granted from role alone. The designated admin email must match too.
-  const isAdmin = Boolean(user && user.role === 'admin' && isAdminEmail(user.email));
+  // Admin is never granted from role alone.
+  // The designated admin email must match too.
+  const isAdmin = Boolean(
+    user &&
+    user.role === 'admin' &&
+    isAdminEmail(user.email)
+  );
 
-  const [favorites, setFavorites] = useState<number[]>(() => user?.favorites || []);
+  const [favorites, setFavorites] = useState<number[]>(() =>
+    normalizeFavoriteIds(user?.favorites)
+  );
+
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
-  const [authModalMode, setAuthModalMode] = useState<'login' | 'register' | 'favorite_prompt'>('login');
-  const [authPromptReason, setAuthPromptReason] = useState<'favorite' | 'general' | 'review'>('general');
+
+  const [authModalMode, setAuthModalMode] = useState<
+    'login' | 'register' | 'favorite_prompt'
+  >('login');
+
+  const [authPromptReason, setAuthPromptReason] = useState<
+    'favorite' | 'general' | 'review'
+  >('general');
+
   const [toasts, setToasts] = useState<Toast[]>([]);
 
   useEffect(() => {
     localStorage.setItem('tst_lang', lang);
+
     fetch(`/locales/${lang}/translation.json`)
       .then(res => res.json())
       .then(data => setTranslations(data))
-      .catch(err => console.error('Failed to load translations', err));
+      .catch(err =>
+        console.error('Failed to load translations', err)
+      );
   }, [lang]);
 
   useEffect(() => {
     if (user) {
-      setFavorites(user.favorites || []);
-      localStorage.setItem('tst_user', JSON.stringify(user));
+      const normalizedFavorites = normalizeFavoriteIds(
+        user.favorites
+      );
+
+      setFavorites(normalizedFavorites);
+
+      const normalizedUser = {
+        ...user,
+        favorites: normalizedFavorites
+      };
+
+      localStorage.setItem(
+        'tst_user',
+        JSON.stringify(normalizedUser)
+      );
+
       if (!isAdmin && currentView === 'admin') {
         setCurrentView('home');
       }
     } else {
       setFavorites([]);
+
       localStorage.removeItem('tst_user');
       localStorage.removeItem('tst_favorites');
-      if (currentView === 'admin') setCurrentView('home');
+
+      if (currentView === 'admin') {
+        setCurrentView('home');
+      }
     }
   }, [user, currentView, isAdmin]);
 
@@ -112,74 +198,215 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           : 'This account does not have administrator privileges.',
         'error'
       );
+
       setCurrentView('home');
       return;
     }
+
     setCurrentView(view);
   };
 
-  const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
+  const showToast = (
+    message: string,
+    type: 'success' | 'error' | 'info' = 'success'
+  ) => {
     const id = `toast-${Date.now()}-${Math.random()}`;
-    setToasts(prev => [...prev, { id, message, type }]);
-    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 4000);
+
+    setToasts(prev => [
+      ...prev,
+      {
+        id,
+        message,
+        type
+      }
+    ]);
+
+    setTimeout(
+      () =>
+        setToasts(prev =>
+          prev.filter(t => t.id !== id)
+        ),
+      4000
+    );
   };
 
-  const removeToast = (id: string) => setToasts(prev => prev.filter(t => t.id !== id));
+  const removeToast = (id: string) => {
+    setToasts(prev =>
+      prev.filter(t => t.id !== id)
+    );
+  };
 
-  const t = (key: string, variables?: Record<string, string | number>): string => {
+  const t = (
+    key: string,
+    variables?: Record<string, string | number>
+  ): string => {
     const keys = key.split('.');
     let val: any = translations;
+
     for (const k of keys) {
-      if (val && typeof val === 'object' && k in val) val = val[k];
-      else return key;
+      if (
+        val &&
+        typeof val === 'object' &&
+        k in val
+      ) {
+        val = val[k];
+      } else {
+        return key;
+      }
     }
+
     if (typeof val === 'string' && variables) {
       let formatted = val;
-      for (const [vKey, vVal] of Object.entries(variables)) {
-        formatted = formatted.replace(new RegExp(`{{${vKey}}}`, 'g'), String(vVal));
+
+      for (const [vKey, vVal] of Object.entries(
+        variables
+      )) {
+        formatted = formatted.replace(
+          new RegExp(`{{${vKey}}}`, 'g'),
+          String(vVal)
+        );
       }
+
       return formatted;
     }
+
     return typeof val === 'string' ? val : key;
   };
 
-  const getLocalized = (obj: MultiLangString | undefined | null): string => {
+  const getLocalized = (
+    obj: MultiLangString | undefined | null
+  ): string => {
     if (!obj) return '';
-    return obj[lang] || obj.th || obj.en || obj.zh || '';
+
+    return (
+      obj[lang] ||
+      obj.th ||
+      obj.en ||
+      obj.zh ||
+      ''
+    );
   };
 
-  const toggleFavorite = async (placeId: number) => {
+  /**
+   * Add / Remove Favorite
+   *
+   * จุดสำคัญ:
+   * - normalize ID ก่อนทุกครั้ง
+   * - state ใช้ number[] เสมอ
+   * - localStorage ใช้ number[]
+   * - Firestore ใช้ number
+   */
+  const toggleFavorite = async (
+    placeId: number
+  ) => {
     if (!user) {
       setIsAuthModalOpen(true);
       return;
     }
 
-    const previousFavorites = [...favorites];
-    const isFav = previousFavorites.includes(placeId);
+    const normalizedPlaceId = Number(placeId);
+
+    if (!Number.isFinite(normalizedPlaceId)) {
+      console.error(
+        'Invalid favorite place ID:',
+        placeId
+      );
+
+      showToast(
+        lang === 'th'
+          ? 'ไม่พบรหัสสถานที่'
+          : lang === 'zh'
+          ? '找不到景点编号'
+          : 'Invalid destination ID',
+        'error'
+      );
+
+      return;
+    }
+
+    const previousFavorites =
+      normalizeFavoriteIds(favorites);
+
+    const isFav =
+      previousFavorites.includes(normalizedPlaceId);
+
     const newFavs = isFav
-      ? previousFavorites.filter(id => id !== placeId)
-      : [...previousFavorites, placeId];
+      ? previousFavorites.filter(
+          id => id !== normalizedPlaceId
+        )
+      : [
+          ...previousFavorites,
+          normalizedPlaceId
+        ];
 
     setFavorites(newFavs);
-    const updatedUser = { ...user, favorites: newFavs };
+
+    const updatedUser = {
+      ...user,
+      favorites: newFavs
+    };
+
     setUser(updatedUser);
-    localStorage.setItem('tst_user', JSON.stringify(updatedUser));
+
+    localStorage.setItem(
+      'tst_user',
+      JSON.stringify(updatedUser)
+    );
 
     try {
-      const userRef = doc(db, 'users', String(user.id));
+      if (!db) {
+        throw new Error(
+          'Firebase Firestore is not initialized.'
+        );
+      }
+
+      const userRef = doc(
+        db,
+        'users',
+        String(user.id)
+      );
+
       await updateDoc(userRef, {
-        favorites: isFav ? arrayRemove(placeId) : arrayUnion(placeId)
+        favorites: isFav
+          ? arrayRemove(normalizedPlaceId)
+          : arrayUnion(normalizedPlaceId)
       });
+
       showToast(
         isFav
-          ? (lang === 'th' ? 'ลบออกจากรายการโปรดแล้ว' : lang === 'zh' ? '已从收藏夹移除' : 'Removed from favorites')
-          : (lang === 'th' ? 'บันทึกในรายการโปรดแล้ว' : lang === 'zh' ? '已添加至收藏夹' : 'Added to favorites'),
+          ? lang === 'th'
+            ? 'ลบออกจากรายการโปรดแล้ว'
+            : lang === 'zh'
+            ? '已从收藏夹移除'
+            : 'Removed from favorites'
+          : lang === 'th'
+          ? 'บันทึกในรายการโปรดแล้ว'
+          : lang === 'zh'
+          ? '已添加至收藏夹'
+          : 'Added to favorites',
         'success'
       );
     } catch (err) {
-      console.error('Failed to sync favorite on Firebase', err);
+      console.error(
+        'Failed to sync favorite on Firebase',
+        err
+      );
+
+      // Rollback state ถ้า Firebase บันทึกไม่สำเร็จ
       setFavorites(previousFavorites);
-      setUser({ ...user, favorites: previousFavorites });
+
+      const rollbackUser = {
+        ...user,
+        favorites: previousFavorites
+      };
+
+      setUser(rollbackUser);
+
+      localStorage.setItem(
+        'tst_user',
+        JSON.stringify(rollbackUser)
+      );
+
       showToast(
         lang === 'th'
           ? 'ไม่สามารถบันทึกรายการโปรดได้ กรุณาลองใหม่อีกครั้ง'
@@ -195,17 +422,33 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     try {
       await firebaseLogout();
     } catch (e) {
-      console.warn('Firebase logout warning:', e);
+      console.warn(
+        'Firebase logout warning:',
+        e
+      );
     }
+
     setUser(null);
     setFavorites([]);
+
     localStorage.removeItem('tst_user');
     localStorage.removeItem('tst_favorites');
+
     showToast(
-      lang === 'th' ? 'ออกจากระบบเรียบร้อยแล้ว' : lang === 'zh' ? '已退出登录' : 'Logged out successfully',
+      lang === 'th'
+        ? 'ออกจากระบบเรียบร้อยแล้ว'
+        : lang === 'zh'
+        ? '已退出登录'
+        : 'Logged out successfully',
       'info'
     );
-    if (currentView === 'admin' || currentView === 'profile') setCurrentView('home');
+
+    if (
+      currentView === 'admin' ||
+      currentView === 'profile'
+    ) {
+      setCurrentView('home');
+    }
   };
 
   const quickSearch = (term: string) => {
@@ -216,38 +459,53 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   return (
-    <AppContext.Provider value={{
-      lang,
-      setLang,
-      t,
-      getLocalized,
-      currentView,
-      setCurrentView: handleSetCurrentView,
-      activeCategory,
-      setActiveCategory,
-      activeRegion,
-      setActiveRegion,
-      searchQuery,
-      setSearchQuery,
-      selectedPlaceId,
-      setSelectedPlaceId,
-      user,
-      setUser,
-      isAdmin,
-      favorites,
-      toggleFavorite,
-      isAuthModalOpen,
-      setIsAuthModalOpen,
-      authModalMode,
-      setAuthModalMode,
-      authPromptReason,
-      setAuthPromptReason,
-      toasts,
-      showToast,
-      removeToast,
-      logout,
-      quickSearch
-    }}>
+    <AppContext.Provider
+      value={{
+        lang,
+        setLang,
+        t,
+        getLocalized,
+
+        currentView,
+        setCurrentView: handleSetCurrentView,
+
+        activeCategory,
+        setActiveCategory,
+
+        activeRegion,
+        setActiveRegion,
+
+        searchQuery,
+        setSearchQuery,
+
+        selectedPlaceId,
+        setSelectedPlaceId,
+
+        user,
+        setUser,
+
+        isAdmin,
+
+        favorites,
+        toggleFavorite,
+
+        isAuthModalOpen,
+        setIsAuthModalOpen,
+
+        authModalMode,
+        setAuthModalMode,
+
+        authPromptReason,
+        setAuthPromptReason,
+
+        toasts,
+        showToast,
+        removeToast,
+
+        logout,
+        quickSearch
+      }}
+    >
       {children}
     </AppContext.Provider>
   );
@@ -255,6 +513,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
 export const useApp = () => {
   const context = useContext(AppContext);
-  if (!context) throw new Error('useApp must be used within an AppProvider');
+
+  if (!context) {
+    throw new Error(
+      'useApp must be used within an AppProvider'
+    );
+  }
+
   return context;
 };
