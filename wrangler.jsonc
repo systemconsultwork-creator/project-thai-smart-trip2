@@ -3,6 +3,7 @@
   "name": "project-thai-smart-trip2",
   "main": "./worker.ts",
   "compatibility_date": "2026-08-23",
+  "keep_vars": true,
   "assets": {
     "directory": "./dist",
     "binding": "ASSETS",
