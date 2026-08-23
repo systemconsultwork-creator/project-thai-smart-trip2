@@ -2,18 +2,28 @@ import placesData from './backend/data/places.json';
 import categoriesData from './backend/data/categories.json';
 import provincesData from './backend/data/provinces.json';
 import reviewsData from './backend/data/reviews.json';
+import pendingPlacesData from './backend/data/pendingPlaces.json';
+import usersData from './backend/data/users.json';
 
 type Place = Record<string, any>;
 type Review = Record<string, any>;
+type PendingPlace = Record<string, any>;
+type User = Record<string, any>;
 
 interface Env {
   ASSETS: Fetcher;
+  VITE_FIREBASE_API_KEY?: string;
+  ADMIN_EMAIL?: string;
 }
 
 const places = placesData as Place[];
 const categories = categoriesData as any[];
 const provinces = provincesData as any[];
 const reviews = reviewsData as Review[];
+const pendingPlaces = pendingPlacesData as PendingPlace[];
+const users = usersData as User[];
+
+const DEFAULT_ADMIN_EMAIL = 'systemconsultwork@gmail.com';
 
 function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -137,7 +147,75 @@ function filterPlaces(request: Request) {
   return filtered;
 }
 
-function handleApi(request: Request) {
+/**
+ * Cloudflare Worker cannot use firebase-admin directly.
+ * We verify the Firebase ID token through Firebase Auth's
+ * accounts:lookup endpoint, then compare the verified email
+ * with the single designated admin email.
+ */
+async function requireAdmin(request: Request, env: Env): Promise<Response | null> {
+  const authHeader = request.headers.get('Authorization');
+
+  if (!authHeader?.startsWith('Bearer ')) {
+    return json(
+      { error: 'Authentication required.', code: 'UNAUTHORIZED' },
+      401,
+    );
+  }
+
+  const idToken = authHeader.slice('Bearer '.length).trim();
+  const apiKey = env.VITE_FIREBASE_API_KEY;
+
+  if (!idToken || !apiKey) {
+    return json(
+      { error: 'Firebase authentication is not configured.', code: 'AUTH_CONFIG_ERROR' },
+      500,
+    );
+  }
+
+  try {
+    const verifyResponse = await fetch(
+      `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${encodeURIComponent(apiKey)}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken }),
+      },
+    );
+
+    if (!verifyResponse.ok) {
+      return json(
+        { error: 'Invalid or expired authentication token.', code: 'INVALID_TOKEN' },
+        401,
+      );
+    }
+
+    const payload = (await verifyResponse.json()) as {
+      users?: Array<{ email?: string; disabled?: boolean }>;
+    };
+
+    const verifiedUser = payload.users?.[0];
+    const verifiedEmail = verifiedUser?.email?.trim().toLowerCase();
+    const adminEmail = (env.ADMIN_EMAIL || DEFAULT_ADMIN_EMAIL).trim().toLowerCase();
+
+    if (!verifiedEmail || verifiedUser?.disabled || verifiedEmail !== adminEmail) {
+      return json(
+        { error: 'Access denied. Administrator privileges required.', code: 'FORBIDDEN' },
+        403,
+      );
+    }
+
+    return null;
+  } catch (error) {
+    console.error('Cloudflare admin authentication failed:', error);
+    return json(
+      { error: 'Unable to verify administrator authentication.', code: 'AUTH_VERIFY_ERROR' },
+      401,
+    );
+  }
+}
+
+async function handleApi(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
   const { pathname } = url;
 
@@ -185,6 +263,47 @@ function handleApi(request: Request) {
     return json(result);
   }
 
+  // Member/profile read endpoint. The admin dashboard also uses this
+  // endpoint without userId to retrieve the moderation queue.
+  if (request.method === 'GET' && pathname === '/api/submissions') {
+    const userId = url.searchParams.get('userId');
+
+    if (userId) {
+      return json(
+        pendingPlaces.filter((submission) => submission.submittedBy?.userId === userId),
+      );
+    }
+
+    const adminError = await requireAdmin(request, env);
+    if (adminError) return adminError;
+
+    return json(pendingPlaces);
+  }
+
+  if (request.method === 'GET' && pathname === '/api/admin/stats') {
+    const adminError = await requireAdmin(request, env);
+    if (adminError) return adminError;
+
+    const pendingCount = pendingPlaces.filter(
+      (submission) => submission.status === 'pending',
+    ).length;
+
+    const regionalStats = {
+      north: places.filter((place) => place.regionId === 'north').length,
+      central: places.filter((place) => place.regionId === 'central').length,
+      northeast: places.filter((place) => place.regionId === 'northeast').length,
+      south: places.filter((place) => place.regionId === 'south').length,
+    };
+
+    return json({
+      totalPlaces: places.length,
+      pendingSubmissions: pendingCount,
+      totalReviews: reviews.length,
+      totalUsers: users.length,
+      regionalStats,
+    });
+  }
+
   // Persistent writes will be moved to Cloudflare D1 in the next migration step.
   // Returning a clear response is safer than pretending a JSON file is writable
   // inside a stateless Worker runtime.
@@ -208,7 +327,7 @@ export default {
     const url = new URL(request.url);
 
     if (url.pathname.startsWith('/api/')) {
-      return handleApi(request);
+      return handleApi(request, env);
     }
 
     return env.ASSETS.fetch(request);
