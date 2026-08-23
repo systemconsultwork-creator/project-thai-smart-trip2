@@ -155,7 +155,9 @@ export const api = {
   // Submissions (Pending Places)
   async getSubmissions(userId?: string): Promise<PendingPlace[]> {
     const query = userId ? `?userId=${encodeURIComponent(userId)}` : '';
-    const res = await fetch(`/api/submissions${query}`);
+    const res = await fetch(`/api/submissions${query}`, {
+      headers: await getAuthHeaders(false),
+    });
     if (!res.ok) throw new Error('Failed to fetch submissions');
     return res.json();
   },
@@ -203,24 +205,14 @@ export const api = {
   },
 
   // Auth & Users
+  // Legacy API auth methods are intentionally kept out of the active login flow.
+  // Authentication is handled by Firebase Auth in firebase.ts.
   async login(email: string): Promise<{ user: User; token: string }> {
-    const res = await fetch('/api/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email }),
-    });
-    if (!res.ok) throw new Error('Failed to login');
-    return res.json();
+    throw new Error(`Legacy API login is disabled. Use Firebase Auth instead (${email}).`);
   },
 
   async register(name: string, email: string, role?: 'admin' | 'user'): Promise<{ user: User; token: string }> {
-    const res = await fetch('/api/auth/register', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, email, role }),
-    });
-    if (!res.ok) throw new Error('Failed to register');
-    return res.json();
+    throw new Error(`Legacy API registration is disabled. Use Firebase Auth instead (${name}, ${email}, ${role || 'user'}).`);
   },
 
   async logout(): Promise<void> {
