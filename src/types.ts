@@ -82,6 +82,7 @@ export interface PendingPlace {
     userId: string;
     userName: string;
     email: string;
+    name?: string;
   };
   status: 'pending' | 'approved' | 'rejected' | 'deleted';
   submittedAt: string;
