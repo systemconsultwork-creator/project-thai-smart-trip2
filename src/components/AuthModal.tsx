@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
-import { api } from '../services/api';
 import { ensureFirestoreUser, loginWithGoogle } from '../services/firebase';
 import { User } from '../types';
 import { X, Sparkles } from 'lucide-react';
@@ -31,12 +30,10 @@ export const AuthModal: React.FC = () => {
     if (googleLoading) return;
     setGoogleLoading(true);
     try {
+      // Authentication is handled entirely by Firebase Auth.
+      // Do not call the legacy /api/auth/login endpoint.
       const firebaseUser = await loginWithGoogle();
       if (!firebaseUser) return;
-
-      if (firebaseUser.email) {
-        await api.login(firebaseUser.email).catch(() => null);
-      }
 
       const firestoreProfile = await ensureFirestoreUser(firebaseUser);
       const verifiedRole: 'admin' | 'user' = isAdminEmail(firebaseUser.email) ? 'admin' : 'user';
