@@ -1,5 +1,5 @@
 import { Place, Category, ProvinceItem, Review, PendingPlace, User } from '../types';
-import { getFirebaseAuth } from './firebase';
+import { getFirebaseIdToken, getFirebaseAuth } from './firebase';
 
 async function getAuthHeaders(includeContentType = true): Promise<Record<string, string>> {
   const headers: Record<string, string> = {};
@@ -9,12 +9,15 @@ async function getAuthHeaders(includeContentType = true): Promise<Record<string,
   }
 
   try {
+    const idToken = await getFirebaseIdToken();
     const currentAuth = getFirebaseAuth();
     const firebaseUser = currentAuth?.currentUser;
 
-    if (firebaseUser) {
-      const idToken = await firebaseUser.getIdToken();
+    if (idToken) {
       headers['Authorization'] = `Bearer ${idToken}`;
+    }
+
+    if (firebaseUser) {
       headers['x-user-id'] = firebaseUser.uid;
     }
   } catch (e) {
@@ -24,8 +27,21 @@ async function getAuthHeaders(includeContentType = true): Promise<Record<string,
   return headers;
 }
 
+async function throwApiError(res: Response, fallback: string): Promise<never> {
+  let message = fallback;
+
+  try {
+    const body = await res.json();
+    if (typeof body?.error === 'string') message = body.error;
+    if (typeof body?.code === 'string') message += ` (${body.code})`;
+  } catch {
+    // Keep the fallback message when the server does not return JSON.
+  }
+
+  throw new Error(`${message} [HTTP ${res.status}]`);
+}
+
 export const api = {
-  // Places
   async getPlaces(params: {
     q?: string;
     category?: string;
@@ -51,13 +67,13 @@ export const api = {
     if (params.limit) query.append('limit', params.limit.toString());
 
     const res = await fetch(`/api/places?${query.toString()}`);
-    if (!res.ok) throw new Error('Failed to fetch places');
+    if (!res.ok) return throwApiError(res, 'Failed to fetch places');
     return res.json();
   },
 
   async getPlace(id: number): Promise<Place> {
     const res = await fetch(`/api/places/${id}`);
-    if (!res.ok) throw new Error('Place not found');
+    if (!res.ok) return throwApiError(res, 'Place not found');
     return res.json();
   },
 
@@ -67,7 +83,7 @@ export const api = {
       headers: await getAuthHeaders(true),
       body: JSON.stringify(place),
     });
-    if (!res.ok) throw new Error('Failed to create place');
+    if (!res.ok) return throwApiError(res, 'Failed to create place');
     return res.json();
   },
 
@@ -77,7 +93,7 @@ export const api = {
       headers: await getAuthHeaders(true),
       body: JSON.stringify(place),
     });
-    if (!res.ok) throw new Error('Failed to update place');
+    if (!res.ok) return throwApiError(res, 'Failed to update place');
     return res.json();
   },
 
@@ -91,38 +107,29 @@ export const api = {
       method: 'DELETE',
       headers: await getAuthHeaders(false),
     });
-    if (!res.ok) {
-      let message = 'Failed to delete place';
-      try {
-        const body = await res.json();
-        if (body?.error) message = body.error;
-      } catch (e) {}
-      throw new Error(message);
-    }
+    if (!res.ok) return throwApiError(res, 'Failed to delete place');
     return res.json();
   },
 
-  // Categories & Provinces
   async getCategories(): Promise<Category[]> {
     const res = await fetch('/api/categories');
-    if (!res.ok) throw new Error('Failed to fetch categories');
+    if (!res.ok) return throwApiError(res, 'Failed to fetch categories');
     return res.json();
   },
 
   async getProvinces(): Promise<ProvinceItem[]> {
     const res = await fetch('/api/provinces');
-    if (!res.ok) throw new Error('Failed to fetch provinces');
+    if (!res.ok) return throwApiError(res, 'Failed to fetch provinces');
     return res.json();
   },
 
-  // Reviews
   async getReviews(params: { placeId?: number; userId?: string } = {}): Promise<Review[]> {
     const query = new URLSearchParams();
     if (params.placeId) query.append('placeId', params.placeId.toString());
     if (params.userId) query.append('userId', params.userId);
 
     const res = await fetch(`/api/reviews?${query.toString()}`);
-    if (!res.ok) throw new Error('Failed to fetch reviews');
+    if (!res.ok) return throwApiError(res, 'Failed to fetch reviews');
     return res.json();
   },
 
@@ -137,10 +144,10 @@ export const api = {
   }): Promise<Review> {
     const res = await fetch('/api/reviews', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: await getAuthHeaders(true),
       body: JSON.stringify(data),
     });
-    if (!res.ok) throw new Error('Failed to submit review');
+    if (!res.ok) return throwApiError(res, 'Failed to submit review');
     return res.json();
   },
 
@@ -149,16 +156,15 @@ export const api = {
       method: 'DELETE',
       headers: await getAuthHeaders(false),
     });
-    if (!res.ok) throw new Error('Failed to delete review');
+    if (!res.ok) return throwApiError(res, 'Failed to delete review');
   },
 
-  // Submissions (Pending Places)
   async getSubmissions(userId?: string): Promise<PendingPlace[]> {
     const query = userId ? `?userId=${encodeURIComponent(userId)}` : '';
     const res = await fetch(`/api/submissions${query}`, {
       headers: await getAuthHeaders(false),
     });
-    if (!res.ok) throw new Error('Failed to fetch submissions');
+    if (!res.ok) return throwApiError(res, 'Failed to fetch submissions');
     return res.json();
   },
 
@@ -168,7 +174,7 @@ export const api = {
       headers: await getAuthHeaders(true),
       body: JSON.stringify(data),
     });
-    if (!res.ok) throw new Error('Failed to submit place');
+    if (!res.ok) return throwApiError(res, 'Failed to submit place');
     return res.json();
   },
 
@@ -177,7 +183,7 @@ export const api = {
       method: 'POST',
       headers: await getAuthHeaders(false),
     });
-    if (!res.ok) throw new Error('Failed to approve submission');
+    if (!res.ok) return throwApiError(res, 'Failed to approve submission');
     return res.json();
   },
 
@@ -186,10 +192,9 @@ export const api = {
       method: 'POST',
       headers: await getAuthHeaders(false),
     });
-    if (!res.ok) throw new Error('Failed to reject submission');
+    if (!res.ok) return throwApiError(res, 'Failed to reject submission');
   },
 
-  // Admin Stats
   async getAdminStats(): Promise<{
     totalPlaces: number;
     pendingSubmissions: number;
@@ -200,13 +205,10 @@ export const api = {
     const res = await fetch('/api/admin/stats', {
       headers: await getAuthHeaders(false),
     });
-    if (!res.ok) throw new Error('Failed to fetch admin stats');
+    if (!res.ok) return throwApiError(res, 'Failed to fetch admin stats');
     return res.json();
   },
 
-  // Auth & Users
-  // Legacy API auth methods are intentionally kept out of the active login flow.
-  // Authentication is handled by Firebase Auth in firebase.ts.
   async login(email: string): Promise<{ user: User; token: string }> {
     throw new Error(`Legacy API login is disabled. Use Firebase Auth instead (${email}).`);
   },
@@ -225,7 +227,7 @@ export const api = {
       headers: await getAuthHeaders(true),
       body: JSON.stringify({ userId, placeId }),
     });
-    if (!res.ok) throw new Error('Failed to update favorite');
+    if (!res.ok) return throwApiError(res, 'Failed to update favorite');
     return res.json();
-  }
+  },
 };
