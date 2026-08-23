@@ -12,6 +12,9 @@ type User = Record<string, any>;
 
 interface Env {
   ASSETS: Fetcher;
+  // FIREBASE_WEB_API_KEY is the preferred runtime variable for the Worker.
+  // VITE_FIREBASE_API_KEY remains as a backwards-compatible fallback.
+  FIREBASE_WEB_API_KEY?: string;
   VITE_FIREBASE_API_KEY?: string;
   ADMIN_EMAIL?: string;
 }
@@ -164,11 +167,15 @@ async function requireAdmin(request: Request, env: Env): Promise<Response | null
   }
 
   const idToken = authHeader.slice('Bearer '.length).trim();
-  const apiKey = env.VITE_FIREBASE_API_KEY;
+  const apiKey = env.FIREBASE_WEB_API_KEY || env.VITE_FIREBASE_API_KEY;
 
   if (!idToken || !apiKey) {
     return json(
-      { error: 'Firebase authentication is not configured.', code: 'AUTH_CONFIG_ERROR' },
+      {
+        error: 'Firebase authentication is not configured for the Worker runtime.',
+        code: 'AUTH_CONFIG_ERROR',
+        missing: !apiKey ? 'FIREBASE_WEB_API_KEY' : 'ID_TOKEN',
+      },
       500,
     );
   }
